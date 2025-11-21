@@ -1,0 +1,9 @@
+node_modules/
+target/
+.git/
+.mvn/
+mvnw
+mvnw.cmd
+README.md
+src/test/
+src/main/webapp/

@@ -1,0 +1,35 @@
+version: '3.8'
+services:
+  jhipster-sample-app:
+    build: .
+    ports:
+      - '8080:8080'
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql:5432/jhipster
+      - SPRING_LIQUIBASE_URL=jdbc:postgresql://postgresql:5432/jhipster
+      - JHIPSTER_SLEEP=30
+    depends_on:
+      - postgresql
+    networks:
+      - jhipster-network
+
+  postgresql:
+    image: postgres:13
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRES_USER=jhipster
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=jhipster
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    networks:
+      - jhipster-network
+
+volumes:
+  postgresql_data:
+
+networks:
+  jhipster-network:
+    driver: bridge

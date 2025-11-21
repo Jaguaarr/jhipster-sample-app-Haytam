@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  jhipster-sample-app:
+    image: your-dockerhub-username/jhipster-sample-app:latest
+    restart: always
+    ports:
+      - '8080:8080'
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql:5432/jhipster
+      - SPRING_LIQUIBASE_URL=jdbc:postgresql://postgresql:5432/jhipster
+      - JHIPSTER_CACHE_REDIS_SERVER=redis://redis:6379
+    depends_on:
+      - postgresql
+      - redis
+    networks:
+      - jhipster-prod-network
+
+  postgresql:
+    image: postgres:13
+    restart: always
+    environment:
+      - POSTGRES_USER=jhipster
+      - POSTGRES_PASSWORD=your-secure-password
+      - POSTGRES_DB=jhipster
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    networks:
+      - jhipster-prod-network
+
+  redis:
+    image: redis:6-alpine
+    restart: always
+    networks:
+      - jhipster-prod-network
+
+volumes:
+  postgresql_data:
+
+networks:
+  jhipster-prod-network:
+    driver: bridge

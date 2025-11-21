@@ -7,6 +7,8 @@ pipeline {
 
     environment {
         MAVEN_OPTS = '-Xmx2048m'
+        DOCKER_IMAGE = 'elazzayoub/jhipster-sample-app'
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
     }
 
     stages {
@@ -71,6 +73,52 @@ pipeline {
             steps {
                 echo 'Checking Quality Gate...'
 
+            }
+        }
+
+
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building Docker image...'
+                script {
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                }
+            }
+        }
+
+        stage('Test Docker Image') {
+            steps {
+                echo 'Testing Docker image...'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside('--memory=1g') {
+                        sh 'java -version'
+                        sh 'echo "Docker container test passed"'
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                echo 'Pushing Docker image to registry...'
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push('latest')
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Docker') {
+            steps {
+                echo 'Deploying application with Docker Compose...'
+                sh '''
+                docker-compose -f docker-compose.prod.yml down
+                docker-compose -f docker-compose.prod.yml pull
+                docker-compose -f docker-compose.prod.yml up -d
+                '''
             }
         }
     }
