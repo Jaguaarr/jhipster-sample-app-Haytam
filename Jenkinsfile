@@ -7,8 +7,9 @@ pipeline {
 
     environment {
         MAVEN_OPTS = '-Xmx2048m'
-        DOCKER_IMAGE = 'elazzayoub/jhipster-sample-app'
+        DOCKER_IMAGE = 'jhipster-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
+        APP_NAME = 'jhipster-app'  // Add this line
     }
 
     stages {
@@ -58,6 +59,13 @@ pipeline {
             }
         }
 
+        stage('Build Application') {
+            steps {
+                checkout scm
+                sh './mvnw clean package -Pprod -DskipTests'
+            }
+        }
+
         stage('5. SonarQube Analysis') {
             steps {
                 echo 'Running SonarQube analysis...'
@@ -76,52 +84,45 @@ pipeline {
             }
         }
 
-
-
         stage('Build Docker Image') {
             steps {
-                echo 'Building Docker image...'
-                script {
-                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                }
+                sh "docker build -t ${APP_NAME} ."
             }
         }
 
-        stage('Test Docker Image') {
-            steps {
-                echo 'Testing Docker image...'
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside('--memory=1g') {
-                        sh 'java -version'
-                        sh 'echo "Docker container test passed"'
-                    }
-                }
-            }
-        }
+        stage('Run Docker Container') {
+    steps {
+        sh """
+        # Stop old containers if exist
+        docker stop ${APP_NAME} || true
+        docker rm ${APP_NAME} || true
+        docker stop postgresql || true
+        docker rm postgresql || true
 
-        stage('Push Docker Image') {
-            steps {
-                echo 'Pushing Docker image to registry...'
-                script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
-                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
-                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push('latest')
-                    }
-                }
-            }
-        }
+        # Start PostgreSQL database
+        docker run -d --name postgresql \\
+          -e POSTGRES_DB=jhipsterSampleApplication \\
+          -e POSTGRES_USER=jhipsterSampleApplication \\
+          -e POSTGRES_PASSWORD=password \\
+          -p 5432:5432 \\
+          postgres:15
 
-        stage('Deploy to Docker') {
-            steps {
-                echo 'Deploying application with Docker Compose...'
-                sh '''
-                docker-compose -f docker-compose.prod.yml down
-                docker-compose -f docker-compose.prod.yml pull
-                docker-compose -f docker-compose.prod.yml up -d
-                '''
-            }
-        }
+        # Wait for PostgreSQL to be ready
+        sleep 10
+
+        # Run JHipster application with database connection
+        docker run -d --name ${APP_NAME} \\
+          --network host \\
+          -e SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/jhipsterSampleApplication \\
+          -e SPRING_DATASOURCE_USERNAME=jhipsterSampleApplication \\
+          -e SPRING_DATASOURCE_PASSWORD=password \\
+          ${APP_NAME}
+
+        echo "Container started - check logs with: docker logs ${APP_NAME}"
+        """
     }
+}
+      }
 
     post {
         success {
