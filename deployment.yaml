@@ -2,10 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jhipster-app
-  labels:
-    app: jhipster-app
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: jhipster-app
@@ -15,26 +13,7 @@ spec:
         app: jhipster-app
     spec:
       containers:
-        - name: jhipster-app
-          image: ton-utilisateur/jhipster-app:17   # Remplace par ton Docker Hub tag
-          ports:
-            - containerPort: 8080
-          resources:
-            requests:
-              memory: "512Mi"
-              cpu: "500m"
-            limits:
-              memory: "1Gi"
-              cpu: "1"
-          livenessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 20
-            periodSeconds: 5
+      - name: jhipster-app
+        image: jhipster-app:20
+        ports:
+        - containerPort: 8080
