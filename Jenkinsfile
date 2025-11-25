@@ -114,8 +114,7 @@ pipeline {
                 }
             }
         }
-    }
-stage('8. Deploy to Kubernetes') {
+      stage('8. Deploy to Kubernetes') {
     steps {
         echo 'Deploying Docker image to Kubernetes...'
         script {
@@ -137,6 +136,8 @@ stage('8. Deploy to Kubernetes') {
         }
     }
 }
+    }
+
 
 
 
