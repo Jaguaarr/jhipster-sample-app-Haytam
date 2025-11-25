@@ -62,7 +62,7 @@ pipeline {
         stage('5. SonarQube Analysis') {
             steps {
                 echo 'Running SonarQube analysis...'
-                timeout(time: 30, unit: 'MINUTES') {  // Timeout augmenté pour gros projets
+                timeout(time: 30, unit: 'MINUTES') {
                     withSonarQubeEnv('SonarQube') {
                         sh 'mvn sonar:sonar -Dsonar.projectKey=yourwaytoltaly -DskipTests'
                     }
@@ -70,40 +70,47 @@ pipeline {
             }
         }
 
-
-        stage('7. Docker Build & Run') {
+        stage('6. Docker Build & Run') {
             steps {
-                echo 'Building Docker image...'
-                sh """
-                    docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                    docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-                """
+                echo 'Building Docker image and running container...'
+                script {
+                    // Stop and remove existing container if exists
+                    sh """
+                        if [ \$(docker ps -aq -f name=${APP_NAME}) ]; then
+                            echo 'Stopping existing container...'
+                            docker rm -f ${APP_NAME}
+                        fi
+
+                        echo 'Building Docker image...'
+                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+
+                        echo 'Running Docker container...'
+                        docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
+                    """
+                }
             }
         }
 
-        stage('8. Security Scan with Trivy') {
-          steps {
-              echo 'Running security scan with Trivy...'
-              script {
-                  // Catch errors so the build doesn't fail
-                  catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                      sh '''
-                          # Scan Docker image but continue even if vulnerabilities are found
-                          trivy image --exit-code 0 --format json -o trivy-report.json jhipster-app:${DOCKER_TAG}
-      
-                          # Optionally, generate an HTML report
-                          trivy image --exit-code 0 --format template --template "@contrib/html.tpl" -o trivy-report.html jhipster-app:${DOCKER_TAG}
-                      '''
-                  }
-              }
-          }
-          post {
-              always {
-                  // Archive the reports so you can check them in Jenkins
-                  archiveArtifacts artifacts: 'trivy-report.*', allowEmptyArchive: true
-              }
-          }
-}
+        stage('7. Security Scan with Trivy') {
+            steps {
+                echo 'Running security scan with Trivy...'
+                script {
+                    // Catch errors to not fail the pipeline
+                    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                        sh """
+                            echo 'Scanning Docker image with Trivy...'
+                            trivy image --exit-code 0 --format json -o trivy-report.json ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            trivy image --exit-code 0 --format template --template "@contrib/html.tpl" -o trivy-report.html ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        """
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.*', allowEmptyArchive: true
+                }
+            }
+        }
     }
 
     post {
