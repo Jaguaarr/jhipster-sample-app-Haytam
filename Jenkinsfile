@@ -9,13 +9,15 @@ pipeline {
         MAVEN_OPTS = '-Xmx2048m'
         DOCKER_IMAGE = 'jhipster-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
-        APP_NAME = 'jhipster-app'  // Add this line
+        APP_NAME = 'jhipster-app'
+        SONARQUBE_ENV = 'SonarQube' // Nom configuré dans Jenkins → SonarQube servers
+        EMAIL_RECIPIENTS = 'tonemail@exemple.com'
     }
 
     stages {
         stage('1. Clone Repository') {
             steps {
-                echo 'Cloning repository from GitHub...'
+                echo 'Cloning repository...'
                 checkout scm
             }
         }
@@ -26,13 +28,12 @@ pipeline {
                 sh 'mvn clean compile -DskipTests'
             }
         }
-         stage('3. Run Tests with Failure Tolerance') {
+
+        stage('3. Run Tests with Failure Tolerance') {
             steps {
                 script {
-                    // Run tests but don't fail the pipeline on test failures
                     catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                         sh '''
-                            # Skip problematic tests
                             mvn test \
                                 -DskipTests=false \
                                 -Dtest="!DTOValidationTest,!MailServiceTest,!HibernateTimeZoneIT,!OperationResourceAdditionalTest" \
@@ -47,26 +48,25 @@ pipeline {
                 }
             }
         }
-        stage('4. Generate JAR Package') {
+
+        stage('4. Package Application') {
             steps {
-                echo 'Creating JAR package...'
+                echo 'Packaging JAR...'
                 sh 'mvn package -DskipTests'
             }
             post {
                 success {
-                    archiveArtifacts artifacts: '**/target/*.jar', allowEmptyArchive: true, fingerprint: true
+                    archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
                 }
             }
         }
-
-
 
         stage('5. SonarQube Analysis') {
             steps {
                 echo 'Running SonarQube analysis...'
                 timeout(time: 15, unit: 'MINUTES') {
-                    withSonarQubeEnv('SonarQube') {
-                        sh 'mvn sonar:sonar -Dsonar.projectKey=yourwaytoltaly -DskipTests'
+                    withSonarQubeEnv("${SONARQUBE_ENV}") {
+                        sh 'mvn sonar:sonar -Dsonar.projectKey=jhipster-sample-app -DskipTests'
                     }
                 }
             }
@@ -74,25 +74,54 @@ pipeline {
 
         stage('6. Quality Gate Check') {
             steps {
-                echo 'Checking Quality Gate...'
-
+                echo 'Checking SonarQube Quality Gate...'
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
 
-      }
+        stage('7. Docker Build & Run') {
+            steps {
+                echo 'Building Docker image...'
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                echo 'Running Docker container...'
+                sh "docker stop ${APP_NAME} || true && docker rm ${APP_NAME} || true"
+                sh "docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            }
+        }
+
+        stage('8. Security Scan with Trivy') {
+            steps {
+                echo 'Running Trivy vulnerability scan...'
+                sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            }
+        }
+
+    }
 
     post {
         success {
             echo '✓ Pipeline executed successfully!'
-            echo 'ℹ️  Docker containers are still running. Access the app at the URL shown above.'
+            mail to: "${EMAIL_RECIPIENTS}",
+                 subject: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Le pipeline pour ${env.JOB_NAME} a réussi.\nAccédez à l'application: http://<server-ip>:8080"
+        }
+        unstable {
+            echo '⚠ Pipeline completed with warnings.'
+            mail to: "${EMAIL_RECIPIENTS}",
+                 subject: "Build UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Le pipeline pour ${env.JOB_NAME} est instable.\nVérifiez les logs Jenkins pour détails."
         }
         failure {
             echo '✗ Pipeline failed.'
+            mail to: "${EMAIL_RECIPIENTS}",
+                 subject: "Build FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Le pipeline pour ${env.JOB_NAME} a échoué.\nVérifiez les logs Jenkins."
         }
         always {
-            echo 'Cleaning workspace files (containers will keep running)...'
-            // Only clean workspace files, not running containers
-            cleanWs(cleanWhenNotBuilt: false, deleteDirs: true, disableDeferredWipeout: false)
+            echo 'Cleaning workspace...'
+            cleanWs(cleanWhenNotBuilt: false)
         }
     }
 }
