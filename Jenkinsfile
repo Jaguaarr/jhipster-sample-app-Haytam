@@ -87,34 +87,71 @@ pipeline {
 
         stage('Run Docker Container') {
     steps {
-        sh """
-        # Stop old containers if exist
-        docker stop ${APP_NAME} || true
-        docker rm ${APP_NAME} || true
-        docker stop postgresql || true
-        docker rm postgresql || true
+        script {
+            sh """
+            # Stop old containers if exist
+            docker stop ${APP_NAME} || true
+            docker rm ${APP_NAME} || true
+            docker stop postgresql || true
+            docker rm postgresql || true
 
-        # Start PostgreSQL database
-        docker run -d --name postgresql \\
-          -e POSTGRES_DB=jhipsterSampleApplication \\
-          -e POSTGRES_USER=jhipsterSampleApplication \\
-          -e POSTGRES_PASSWORD=password \\
-          -p 5432:5432 \\
-          postgres:15
+            # Start PostgreSQL database
+            docker run -d --name postgresql \\
+              -e POSTGRES_DB=jhipsterSampleApplication \\
+              -e POSTGRES_USER=jhipsterSampleApplication \\
+              -e POSTGRES_PASSWORD=password \\
+              -p 5432:5432 \\
+              postgres:15
 
-        # Wait for PostgreSQL to be ready
-        sleep 10
+            # Wait for PostgreSQL to be ready
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 15
 
-        # Run JHipster application with database connection
-        docker run -d --name ${APP_NAME} \\
-          --network host \\
-          -e SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/jhipsterSampleApplication \\
-          -e SPRING_DATASOURCE_USERNAME=jhipsterSampleApplication \\
-          -e SPRING_DATASOURCE_PASSWORD=password \\
-          ${APP_NAME}
+            # Run JHipster application with database connection
+            # Using port mapping instead of host network for better access control
+            docker run -d --name ${APP_NAME} \\
+              --link postgresql:postgresql \\
+              -p 8080:8080 \\
+              -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql:5432/jhipsterSampleApplication \\
+              -e SPRING_DATASOURCE_USERNAME=jhipsterSampleApplication \\
+              -e SPRING_DATASOURCE_PASSWORD=password \\
+              ${APP_NAME}
 
-        echo "Container started - check logs with: docker logs ${APP_NAME}"
-        """
+            echo "✅ Containers started!"
+            echo "Checking container status..."
+            docker ps | grep -E "${APP_NAME}|postgresql"
+            """
+
+            // Wait a bit for app to start
+            sleep(30)
+
+            // Get Jenkins server's public IP
+            def publicIp = sh(script: "curl -s https://api.ipify.org || curl -s https://ifconfig.me || hostname -I | awk '{print \$1}'", returnStdout: true).trim()
+
+            // Check if app is responding
+            sh """
+            echo "Checking if app is responding..."
+            for i in {1..10}; do
+                if curl -sf http://localhost:8080/management/health >/dev/null 2>&1; then
+                    echo "✅ App is healthy and responding!"
+                    break
+                fi
+                echo "Waiting for app to be ready... (\$i/10)"
+                sleep 5
+            done
+            """
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "✅ JHipster App is now running!"
+            echo ""
+            echo "📍 Access the app at:"
+            echo "   http://${publicIp}:8080"
+            echo ""
+            echo "ℹ️  Container logs: docker logs ${APP_NAME}"
+            echo "ℹ️  Container status: docker ps | grep ${APP_NAME}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        }
     }
 }
       }
@@ -122,13 +159,15 @@ pipeline {
     post {
         success {
             echo '✓ Pipeline executed successfully!'
+            echo 'ℹ️  Docker containers are still running. Access the app at the URL shown above.'
         }
         failure {
             echo '✗ Pipeline failed.'
         }
         always {
-            echo 'Cleaning workspace...'
-            cleanWs()
+            echo 'Cleaning workspace files (containers will keep running)...'
+            // Only clean workspace files, not running containers
+            cleanWs(cleanWhenNotBuilt: false, deleteDirs: true, disableDeferredWipeout: false)
         }
     }
 }
