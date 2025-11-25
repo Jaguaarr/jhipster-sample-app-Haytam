@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jhipster-app-service
+spec:
+  selector:
+    app: jhipster-app
+  type: LoadBalancer   # NodePort si tu es en local (minikube)
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
