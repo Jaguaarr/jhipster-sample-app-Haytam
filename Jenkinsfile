@@ -10,14 +10,12 @@ pipeline {
         DOCKER_IMAGE = 'jhipster-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         APP_NAME = 'jhipster-app'
-        SONARQUBE_ENV = 'SonarQube' // Nom configuré dans Jenkins → SonarQube servers
-        EMAIL_RECIPIENTS = 'tonemail@exemple.com'
     }
 
     stages {
         stage('1. Clone Repository') {
             steps {
-                echo 'Cloning repository...'
+                echo 'Cloning repository from GitHub...'
                 checkout scm
             }
         }
@@ -49,14 +47,14 @@ pipeline {
             }
         }
 
-        stage('4. Package Application') {
+        stage('4. Generate JAR Package') {
             steps {
-                echo 'Packaging JAR...'
+                echo 'Creating JAR package...'
                 sh 'mvn package -DskipTests'
             }
             post {
                 success {
-                    archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
+                    archiveArtifacts artifacts: '**/target/*.jar', allowEmptyArchive: true, fingerprint: true
                 }
             }
         }
@@ -64,9 +62,9 @@ pipeline {
         stage('5. SonarQube Analysis') {
             steps {
                 echo 'Running SonarQube analysis...'
-                timeout(time: 15, unit: 'MINUTES') {
-                    withSonarQubeEnv("${SONARQUBE_ENV}") {
-                        sh 'mvn sonar:sonar -Dsonar.projectKey=jhipster-sample-app -DskipTests'
+                timeout(time: 30, unit: 'MINUTES') {  // Timeout augmenté pour gros projets
+                    withSonarQubeEnv('SonarQube') {
+                        sh 'mvn sonar:sonar -Dsonar.projectKey=yourwaytoltaly -DskipTests'
                     }
                 }
             }
@@ -74,8 +72,8 @@ pipeline {
 
         stage('6. Quality Gate Check') {
             steps {
-                echo 'Checking SonarQube Quality Gate...'
-                timeout(time: 5, unit: 'MINUTES') {
+                echo 'Waiting for SonarQube Quality Gate...'
+                timeout(time: 10, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -84,44 +82,32 @@ pipeline {
         stage('7. Docker Build & Run') {
             steps {
                 echo 'Building Docker image...'
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-                echo 'Running Docker container...'
-                sh "docker stop ${APP_NAME} || true && docker rm ${APP_NAME} || true"
-                sh "docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                sh """
+                    docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                    docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
+                """
             }
         }
 
         stage('8. Security Scan with Trivy') {
             steps {
-                echo 'Running Trivy vulnerability scan...'
+                echo 'Scanning Docker image with Trivy...'
                 sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}"
             }
         }
-
     }
 
     post {
         success {
             echo '✓ Pipeline executed successfully!'
-            mail to: "${EMAIL_RECIPIENTS}",
-                 subject: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Le pipeline pour ${env.JOB_NAME} a réussi.\nAccédez à l'application: http://<server-ip>:8080"
-        }
-        unstable {
-            echo '⚠ Pipeline completed with warnings.'
-            mail to: "${EMAIL_RECIPIENTS}",
-                 subject: "Build UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Le pipeline pour ${env.JOB_NAME} est instable.\nVérifiez les logs Jenkins pour détails."
+            echo 'ℹ️ Docker container is running. Access the app at http://<agent-ip>:8080'
         }
         failure {
             echo '✗ Pipeline failed.'
-            mail to: "${EMAIL_RECIPIENTS}",
-                 subject: "Build FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Le pipeline pour ${env.JOB_NAME} a échoué.\nVérifiez les logs Jenkins."
         }
         always {
-            echo 'Cleaning workspace...'
-            cleanWs(cleanWhenNotBuilt: false)
+            echo 'Cleaning workspace files...'
+            cleanWs(cleanWhenNotBuilt: false, deleteDirs: true, disableDeferredWipeout: false)
         }
     }
 }
