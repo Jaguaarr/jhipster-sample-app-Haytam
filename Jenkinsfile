@@ -10,6 +10,9 @@ pipeline {
         DOCKER_IMAGE = 'jhipster-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         APP_NAME = 'jhipster-app'
+        K8S_NAMESPACE = 'default'             // Namespace Kubernetes
+        K8S_DEPLOYMENT = 'jhipster-app'      // Nom du déploiement
+        K8S_SERVICE = 'jhipster-app-service' // Nom du service
     }
 
     stages {
@@ -112,6 +115,30 @@ pipeline {
             }
         }
     }
+stage('8. Deploy to Kubernetes') {
+    steps {
+        echo 'Deploying Docker image to Kubernetes...'
+        script {
+            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                sh """
+                    # Appliquer les fichiers YAML depuis la racine
+                    kubectl apply -f deployment.yaml
+                    kubectl apply -f service.yaml
+
+                    # Mettre à jour l'image du déploiement
+                    kubectl set image deployment/${K8S_DEPLOYMENT} \
+                        ${K8S_DEPLOYMENT}=ton-utilisateur/jhipster-app:${DOCKER_TAG} \
+                        -n ${K8S_NAMESPACE}
+
+                    # Attendre que le déploiement soit prêt
+                    kubectl rollout status deployment/${K8S_DEPLOYMENT} -n ${K8S_NAMESPACE}
+                """
+            }
+        }
+    }
+}
+
+
 
     post {
         success {
