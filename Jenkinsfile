@@ -10,12 +10,13 @@ pipeline {
         DOCKER_IMAGE = 'jhipster-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         APP_NAME = 'jhipster-app'
-        K8S_NAMESPACE = 'default'             // Namespace Kubernetes
-        K8S_DEPLOYMENT = 'jhipster-app'      // Nom du déploiement
-        K8S_SERVICE = 'jhipster-app-service' // Nom du service
+        K8S_NAMESPACE = 'default'             
+        K8S_DEPLOYMENT = 'jhipster-app'      
+        K8S_SERVICE = 'jhipster-app-service' 
     }
 
     stages {
+
         stage('1. Clone Repository') {
             steps {
                 echo 'Cloning repository from GitHub...'
@@ -73,24 +74,21 @@ pipeline {
             }
         }
 
-        stage('6. Docker Build & Run') {
+        stage('6. Docker Build in Minikube') {
             steps {
-                echo 'Building Docker image and running container...'
-                script {
-                    // Stop and remove existing container if exists
-                    sh """
-                        if [ \$(docker ps -aq -f name=${APP_NAME}) ]; then
-                            echo 'Stopping existing container...'
-                            docker rm -f ${APP_NAME}
-                        fi
+                echo 'Building Docker image inside Minikube...'
+                sh '''
+                    eval $(minikube docker-env)
+                    
+                    # Stop and remove existing container locally
+                    if [ $(docker ps -aq -f name=${APP_NAME}) ]; then
+                        echo 'Stopping existing container...'
+                        docker rm -f ${APP_NAME}
+                    fi
 
-                        echo 'Building Docker image...'
-                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-
-                        echo 'Running Docker container...'
-                        docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-                    """
-                }
+                    echo 'Building Docker image...'
+                    docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                '''
             }
         }
 
@@ -98,13 +96,10 @@ pipeline {
             steps {
                 echo 'Running security scan with Trivy...'
                 script {
-                    // Catch errors to not fail the pipeline
                     catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                        sh """
-                            echo 'Scanning Docker image with Trivy...'
-                            trivy image --exit-code 0 --format json -o trivy-report.json ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            trivy image --exit-code 0 --format template --template "@contrib/html.tpl" -o trivy-report.html ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        """
+                        sh '''
+                            trivy image --exit-code 0 --format json -o trivy-report.json ${DOCKER_IMAGE}:${DOCKER_TAG} || true
+                        '''
                     }
                 }
             }
@@ -114,37 +109,29 @@ pipeline {
                 }
             }
         }
-      stage('8. Deploy to Kubernetes') {
-    steps {
-        echo 'Deploying Docker image to Kubernetes...'
-        script {
-            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                sh """
-                    # Appliquer les fichiers YAML depuis la racine
-                    kubectl apply -f deployment.yaml
-                    kubectl apply -f service.yaml
 
-                    # Mettre à jour l'image du déploiement
-                    kubectl set image deployment/${K8S_DEPLOYMENT} \
-                        ${K8S_DEPLOYMENT}=ton-utilisateur/jhipster-app:${DOCKER_TAG} \
-                        -n ${K8S_NAMESPACE}
+        stage('8. Deploy to Kubernetes') {
+            steps {
+                echo 'Deploying Docker image to Kubernetes...'
+                sh '''
+                    # Assure que Minikube utilise la bonne image locale
+                    eval $(minikube docker-env)
+                    
+                    # Appliquer les manifests Kubernetes
+                    kubectl apply -f kubernetes/deployment.yaml
+                    kubectl apply -f kubernetes/service.yaml
 
                     # Attendre que le déploiement soit prêt
                     kubectl rollout status deployment/${K8S_DEPLOYMENT} -n ${K8S_NAMESPACE}
-                """
+                '''
             }
         }
     }
-}
-    }
-
-
-
 
     post {
         success {
             echo '✓ Pipeline executed successfully!'
-            echo 'ℹ️ Docker container is running. Access the app at http://<agent-ip>:8080'
+            echo 'ℹ️ Access the app at http://$(minikube ip):<service-node-port>'
         }
         failure {
             echo '✗ Pipeline failed.'
